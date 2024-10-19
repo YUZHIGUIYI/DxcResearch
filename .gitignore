@@ -1,0 +1,5 @@
+# Ignore these files or directories
+bin
+.idea
+cmake-build-debug
+build
