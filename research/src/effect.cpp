@@ -214,6 +214,12 @@ namespace toy
 		return S_FALSE;
 	}
 
+	void ConstantBuffer::transmit_upload_data(ConstantBuffer &other) const
+	{
+		const size_t min_size = (std::min)(upload_data.size(), other.upload_data.size());
+		std::memcpy(other.upload_data.data(), upload_data.data(), min_size);
+	}
+
 	void ConstantBuffer::update_buffer(ID3D11DeviceContext *device_context)
 	{
 		if (is_dirty)
@@ -458,88 +464,9 @@ namespace toy
 	}
 
 	// Effect
-	Effect::Effect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device)
-	{
-		auto &&dxc_instance = DxcInStance::get();
-		if (std::holds_alternative<GraphicsPipelineStateObject>(pipeline_state_object))
-		{
-			auto &&graphics_pipeline_state_object = std::get<GraphicsPipelineStateObject>(pipeline_state_object);
-			rasterizer_state = graphics_pipeline_state_object.rasterizer_state;
-			depth_stencil_state = graphics_pipeline_state_object.depth_stencil_state;
-			blend_state = graphics_pipeline_state_object.blend_state;
-			auto shader_target_profile = graphics_pipeline_state_object.shader_target_profile;
+	Effect::Effect() = default;
 
-			// VS
-			if (!graphics_pipeline_state_object.vs_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.vs_path, ShaderType::VertexShader, shader_target_profile);
-				update_shader_reflection(graphics_pipeline_state_object.vs_path, device, dxc_shader_result.shader_reflection.Get());
-				VertexShaderInfo vs_info{};
-				device->CreateVertexShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, vs_info.vs.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(vs_info));
-			} else {
-				pipeline_shader_manager.emplace_back(VertexShaderInfo{});
-			}
-
-			// HS
-			if (!graphics_pipeline_state_object.hs_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.hs_path, ShaderType::HullShader, shader_target_profile);
-				update_shader_reflection(graphics_pipeline_state_object.hs_path, device, dxc_shader_result.shader_reflection.Get());
-				HullShaderInfo hs_info{};
-				device->CreateHullShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, hs_info.hs.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(hs_info));
-			} else {
-				pipeline_shader_manager.emplace_back(HullShaderInfo{});
-			}
-
-			// DS
-			if (!graphics_pipeline_state_object.ds_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.ds_path, ShaderType::DomainShader, shader_target_profile);
-				update_shader_reflection(graphics_pipeline_state_object.ds_path, device, dxc_shader_result.shader_reflection.Get());
-				DomainShaderInfo ds_info{};
-				device->CreateDomainShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, ds_info.ds.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(ds_info));
-			} else {
-				pipeline_shader_manager.emplace_back(DomainShaderInfo{});
-			}
-
-			// GS
-			if (!graphics_pipeline_state_object.gs_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.gs_path, ShaderType::GeometryShader, shader_target_profile);
-				update_shader_reflection(graphics_pipeline_state_object.gs_path, device, dxc_shader_result.shader_reflection.Get());
-				GeometryShaderInfo gs_info{};
-				device->CreateGeometryShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, gs_info.gs.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(gs_info));
-			} else {
-				pipeline_shader_manager.emplace_back(GeometryShaderInfo{});
-			}
-
-			// PS
-			if (!graphics_pipeline_state_object.ps_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.ps_path, ShaderType::PixelShader, shader_target_profile);
-				update_shader_reflection(graphics_pipeline_state_object.ps_path, device, dxc_shader_result.shader_reflection.Get());
-				PixelShaderInfo ps_info{};
-				device->CreatePixelShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, ps_info.ps.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(ps_info));
-			} else {
-				pipeline_shader_manager.emplace_back(PixelShaderInfo{});
-			}
-		} else
-		{
-			auto &&compute_pipeline_state_object = std::get<ComputePipelineStateObject>(pipeline_state_object);
-			auto shader_target_profile = compute_pipeline_state_object.shader_target_profile;
-
-			// CS
-			if (!compute_pipeline_state_object.cs_path.empty()) {
-				auto dxc_shader_result = dxc_instance.create_shader_from_file(compute_pipeline_state_object.cs_path, ShaderType::ComputeShader, shader_target_profile);
-				update_shader_reflection(compute_pipeline_state_object.cs_path, device, dxc_shader_result.shader_reflection.Get());
-				ComputeShaderInfo cs_info{};
-				device->CreateComputeShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, cs_info.cs.GetAddressOf());
-				pipeline_shader_manager.emplace_back(std::move(cs_info));
-			} else {
-				pipeline_shader_manager.emplace_back(ComputeShaderInfo{});
-			}
-		}
-	}
+	Effect::~Effect() = default;
 
 	void Effect::update_shader_reflection(std::wstring_view shader_name, ID3D11Device *device, ID3D12ShaderReflection *shader_reflection)
 	{
@@ -620,11 +547,19 @@ namespace toy
 
 	ConstantBufferAccessor *Effect::query_constant_buffer_accessor(std::string_view variable_name)
 	{
-		auto constant_buffer_var_id = string_to_id(variable_name);
-		if (constant_buffer_accessor_manager.contains(constant_buffer_var_id)) {
+		if (const auto constant_buffer_var_id = string_to_id(variable_name); constant_buffer_accessor_manager.contains(constant_buffer_var_id))
+		{
 			return constant_buffer_accessor_manager[constant_buffer_var_id].get();
 		}
 		return nullptr;
+	}
+
+	void Effect::transmit_constant_buffer(Effect &other, std::string_view constant_buffer_name)
+	{
+		if (const auto constant_buffer_id = string_to_id(constant_buffer_name); constant_buffer_manager.contains(constant_buffer_id) && other.constant_buffer_manager.contains(constant_buffer_id))
+		{
+			constant_buffer_manager[constant_buffer_id]->transmit_upload_data(*other.constant_buffer_manager[constant_buffer_id]);
+		}
 	}
 
 	void Effect::bind_shader_resource_view(std::string_view srv_name, ID3D11ShaderResourceView *srv)
@@ -678,12 +613,132 @@ namespace toy
 		{
 			emit_unordered_access_view(rw_resource_info.second, device_context);
 		}
+	}
 
+	// Graphics effect
+	GraphicsEffect::GraphicsEffect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device)
+	{
+		auto &&dxc_instance = DxcInStance::get();
+		if (std::holds_alternative<GraphicsPipelineStateObject>(pipeline_state_object))
+		{
+			auto &&graphics_pipeline_state_object = std::get<GraphicsPipelineStateObject>(pipeline_state_object);
+			rasterizer_state = graphics_pipeline_state_object.rasterizer_state;
+			depth_stencil_state = graphics_pipeline_state_object.depth_stencil_state;
+			blend_state = graphics_pipeline_state_object.blend_state;
+			auto shader_target_profile = graphics_pipeline_state_object.shader_target_profile;
+
+			// VS
+			if (!graphics_pipeline_state_object.vs_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.vs_path, ShaderType::VertexShader, shader_target_profile);
+				update_shader_reflection(graphics_pipeline_state_object.vs_path, device, dxc_shader_result.shader_reflection.Get());
+				VertexShaderInfo vs_info{};
+				device->CreateVertexShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, vs_info.vs.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(vs_info));
+			} else {
+				pipeline_shader_manager.emplace_back(VertexShaderInfo{});
+			}
+
+			// HS
+			if (!graphics_pipeline_state_object.hs_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.hs_path, ShaderType::HullShader, shader_target_profile);
+				update_shader_reflection(graphics_pipeline_state_object.hs_path, device, dxc_shader_result.shader_reflection.Get());
+				HullShaderInfo hs_info{};
+				device->CreateHullShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, hs_info.hs.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(hs_info));
+			} else {
+				pipeline_shader_manager.emplace_back(HullShaderInfo{});
+			}
+
+			// DS
+			if (!graphics_pipeline_state_object.ds_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.ds_path, ShaderType::DomainShader, shader_target_profile);
+				update_shader_reflection(graphics_pipeline_state_object.ds_path, device, dxc_shader_result.shader_reflection.Get());
+				DomainShaderInfo ds_info{};
+				device->CreateDomainShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, ds_info.ds.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(ds_info));
+			} else {
+				pipeline_shader_manager.emplace_back(DomainShaderInfo{});
+			}
+
+			// GS
+			if (!graphics_pipeline_state_object.gs_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.gs_path, ShaderType::GeometryShader, shader_target_profile);
+				update_shader_reflection(graphics_pipeline_state_object.gs_path, device, dxc_shader_result.shader_reflection.Get());
+				GeometryShaderInfo gs_info{};
+				device->CreateGeometryShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, gs_info.gs.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(gs_info));
+			} else {
+				pipeline_shader_manager.emplace_back(GeometryShaderInfo{});
+			}
+
+			// PS
+			if (!graphics_pipeline_state_object.ps_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.ps_path, ShaderType::PixelShader, shader_target_profile);
+				update_shader_reflection(graphics_pipeline_state_object.ps_path, device, dxc_shader_result.shader_reflection.Get());
+				PixelShaderInfo ps_info{};
+				device->CreatePixelShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, ps_info.ps.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(ps_info));
+			} else {
+				pipeline_shader_manager.emplace_back(PixelShaderInfo{});
+			}
+		}
+	}
+
+	void GraphicsEffect::set_stencil_ref(uint32_t stencil_value)
+	{
+		stencil_ref = stencil_value;
+	}
+
+	void GraphicsEffect::set_blend_factor(std::span<float> blend_value)
+	{
+		const uint32_t size_in_bytes = (std::min)(static_cast<uint32_t>(blend_value.size()), 4U) * sizeof(float);
+		std::memcpy(blend_factor.data(), blend_value.data(), size_in_bytes);
+	}
+
+	void GraphicsEffect::emit_graphics_pipeline(ID3D11DeviceContext *device_context)
+	{
+		Effect::emit_pipeline(device_context);
 		device_context->RSSetState(rasterizer_state.Get());
 		device_context->OMSetDepthStencilState(depth_stencil_state.Get(), stencil_ref);
 		device_context->OMSetBlendState(blend_state.Get(), blend_factor.data(), sample_mask);
 	}
 
+	// Compute pipeline
+	ComputeEffect::ComputeEffect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device)
+	{
+		auto &&dxc_instance = DxcInStance::get();
+		if (std::holds_alternative<ComputePipelineStateObject>(pipeline_state_object))
+		{
+			auto &&compute_pipeline_state_object = std::get<ComputePipelineStateObject>(pipeline_state_object);
+			auto shader_target_profile = compute_pipeline_state_object.shader_target_profile;
+
+			// CS
+			if (!compute_pipeline_state_object.cs_path.empty()) {
+				auto dxc_shader_result = dxc_instance.create_shader_from_file(compute_pipeline_state_object.cs_path, ShaderType::ComputeShader, shader_target_profile);
+				update_shader_reflection(compute_pipeline_state_object.cs_path, device, dxc_shader_result.shader_reflection.Get());
+				ComputeShaderInfo cs_info{};
+				dxc_shader_result.shader_reflection->GetThreadGroupSize(&cs_info.thread_group_conf.thread_group_size_x, &cs_info.thread_group_conf.thread_group_size_y, &cs_info.thread_group_conf.thread_group_size_z);
+				thread_group_conf = cs_info.thread_group_conf;
+				device->CreateComputeShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, cs_info.cs.GetAddressOf());
+				pipeline_shader_manager.emplace_back(std::move(cs_info));
+			} else {
+				pipeline_shader_manager.emplace_back(ComputeShaderInfo{});
+			}
+		}
+	}
+
+	void ComputeEffect::emit_compute_pipeline(ID3D11DeviceContext *device_context)
+	{
+		Effect::emit_pipeline(device_context);
+	}
+
+	void ComputeEffect::dispatch(ID3D11DeviceContext *device_context, uint32_t thread_x, uint32_t thread_y, uint32_t thread_z)
+	{
+		uint32_t thread_group_count_x = (thread_x + thread_group_conf.thread_group_size_x - 1) / thread_group_conf.thread_group_size_x;
+		uint32_t thread_group_count_y = (thread_y + thread_group_conf.thread_group_size_y - 1) / thread_group_conf.thread_group_size_y;
+		uint32_t thread_group_count_z = (thread_z + thread_group_conf.thread_group_size_z - 1) / thread_group_conf.thread_group_size_z;
+		device_context->Dispatch(thread_group_count_x, thread_group_count_y, thread_group_count_z);
+	}
 
 }
 

@@ -116,6 +116,8 @@ namespace toy
 
 		void update_buffer(ID3D11DeviceContext *device_context);
 
+		void transmit_upload_data(ConstantBuffer &other) const;
+
 		void set_shader_flag(ShaderType shader_type);
 
 		void emit_constant_buffer(ID3D11DeviceContext *device_context);
@@ -193,9 +195,17 @@ namespace toy
 		ComPtr<ID3D11PixelShader> ps = nullptr;
 	};
 
+	struct ThreadGroupConf
+	{
+		uint32_t thread_group_size_x = 1;
+		uint32_t thread_group_size_y = 1;
+		uint32_t thread_group_size_z = 1;
+	};
+
 	struct ComputeShaderInfo
 	{
 		ComPtr<ID3D11ComputeShader> cs = nullptr;
+		ThreadGroupConf thread_group_conf{};
 	};
 
 	// Shader resource view info
@@ -272,24 +282,21 @@ namespace toy
 	// Effect
 	struct Effect
 	{
-	private:
+	protected:
 		std::unordered_map<size_t, std::unique_ptr<ConstantBuffer>> constant_buffer_manager;
 		std::unordered_map<size_t, std::unique_ptr<ConstantBufferAccessor>> constant_buffer_accessor_manager;
 		std::unordered_map<size_t, ShaderResource> shader_resource_manager;
 		std::unordered_map<size_t, RWResource> unordered_access_manager;
 		std::unordered_map<size_t, SamplerState> sampler_manager;
 		std::vector<ShaderInfo> pipeline_shader_manager;
-		ComPtr<ID3D11RasterizerState> rasterizer_state = nullptr;
-		ComPtr<ID3D11DepthStencilState> depth_stencil_state = nullptr;
-		ComPtr<ID3D11BlendState> blend_state = nullptr;
-		std::array<float, 4> blend_factor{ 0.0f, 0.0f, 0.0f, 0.0f };
-		uint32_t sample_mask = 0xffffffff;
-		uint32_t stencil_ref = 0;
 
 	public:
-		explicit Effect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device);
+		Effect();
+		virtual ~Effect();
 
 		ConstantBufferAccessor *query_constant_buffer_accessor(std::string_view variable_name);
+
+		void transmit_constant_buffer(Effect &other, std::string_view constant_buffer_name);
 
 		void bind_shader_resource_view(std::string_view srv_name, ID3D11ShaderResourceView *srv);
 
@@ -299,8 +306,63 @@ namespace toy
 
 		void emit_pipeline(ID3D11DeviceContext *device_context);
 
-	private:
+		virtual void set_stencil_ref(uint32_t stencil_value) = 0;
+
+		virtual void set_blend_factor(std::span<float> blend_value) = 0;
+
+		virtual void emit_graphics_pipeline(ID3D11DeviceContext *device_context) = 0;
+
+		virtual void emit_compute_pipeline(ID3D11DeviceContext *device_context) = 0;
+
+		virtual void dispatch(ID3D11DeviceContext *device_context, uint32_t thread_x, uint32_t thread_y, uint32_t thread_z) = 0;
+
+	protected:
 		void update_shader_reflection(std::wstring_view shader_name, ID3D11Device *device, ID3D12ShaderReflection *shader_reflection);
+	};
+
+	struct GraphicsEffect final : Effect
+	{
+	private:
+		ComPtr<ID3D11RasterizerState> rasterizer_state = nullptr;
+		ComPtr<ID3D11DepthStencilState> depth_stencil_state = nullptr;
+		ComPtr<ID3D11BlendState> blend_state = nullptr;
+		std::array<float, 4> blend_factor{ 0.0f, 0.0f, 0.0f, 0.0f };
+		uint32_t sample_mask = 0xffffffff;
+		uint32_t stencil_ref = 0;
+
+	public:
+		explicit GraphicsEffect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device);
+
+		~GraphicsEffect() override = default;
+		GraphicsEffect(const GraphicsEffect &) = delete;
+		GraphicsEffect &operator=(const GraphicsEffect &) = delete;
+		GraphicsEffect(GraphicsEffect &&) = delete;
+		GraphicsEffect &operator=(GraphicsEffect &&) = delete;
+
+		void set_stencil_ref(uint32_t stencil_value) override;
+
+		void set_blend_factor(std::span<float> blend_value) override;
+
+		void emit_graphics_pipeline(ID3D11DeviceContext *device_context) override;
+	};
+
+	struct ComputeEffect final : Effect
+	{
+	private:
+		ThreadGroupConf thread_group_conf{};
+
+	public:
+		explicit ComputeEffect(const PipelineStateObject &pipeline_state_object, ID3D11Device *device);
+
+		~ComputeEffect() override = default;
+		ComputeEffect(const ComputeEffect &) = delete;
+		ComputeEffect &operator=(const ComputeEffect &) = delete;
+		ComputeEffect(ComputeEffect &&) = delete;
+		ComputeEffect &operator=(ComputeEffect &&) = delete;
+
+		void emit_compute_pipeline(ID3D11DeviceContext *device_context) override;
+
+		void dispatch(ID3D11DeviceContext *device_context, uint32_t thread_x, uint32_t thread_y, uint32_t thread_z) override;
 	};
 }
 
