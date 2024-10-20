@@ -22,6 +22,16 @@ namespace toy
 		return static_cast<uint32_t>(shader_type) | static_cast<uint32_t>(shader_target_profile);
 	}
 
+	constexpr uint32_t operator|(ShaderInputParaMask input_para_mask, ShaderInputParaType input_para_type)
+	{
+		return static_cast<uint32_t>(input_para_mask) | static_cast<uint32_t>(input_para_type);
+	}
+
+	constexpr uint32_t operator|(ShaderInputParaType input_para_type, ShaderInputParaMask input_para_mask)
+	{
+		return static_cast<uint32_t>(input_para_mask) | static_cast<uint32_t>(input_para_type);
+	}
+
 	// Hash function
 	size_t string_to_id(std::string_view str_view)
 	{
@@ -59,6 +69,35 @@ namespace toy
 		}
 	}
 
+	// Convert shader input parameter component type to internal component type
+	static constexpr ShaderInputParaType convert_to_internal_component_type(D3D_REGISTER_COMPONENT_TYPE component_type)
+	{
+		switch (component_type)
+		{
+			case D3D_REGISTER_COMPONENT_UNKNOWN : return ShaderInputParaType::Unknown;
+			case D3D_REGISTER_COMPONENT_UINT32  : return ShaderInputParaType::UInt32;
+			case D3D_REGISTER_COMPONENT_SINT32  : return ShaderInputParaType::SInt32;
+			case D3D_REGISTER_COMPONENT_FLOAT32 : return ShaderInputParaType::Float32;
+			default: assert(false && "Unsupported shader component type");
+		}
+	}
+
+	// Shader input parameter to dxgi mapping
+	std::unordered_map<uint32_t, DXGIFormatDesc> s_shader_input_para_mapping {
+		{ ShaderInputParaMask::R | ShaderInputParaType::UInt32, DXGIFormatDesc{ DXGI_FORMAT_R32_UINT, 4 } },
+		{ ShaderInputParaMask::R | ShaderInputParaType::SInt32, DXGIFormatDesc{ DXGI_FORMAT_R32_SINT, 4 } },
+		{ ShaderInputParaMask::R | ShaderInputParaType::Float32, DXGIFormatDesc{ DXGI_FORMAT_R32_FLOAT, 4 } },
+		{ ShaderInputParaMask::RG | ShaderInputParaType::UInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32_UINT, 8 } },
+		{ ShaderInputParaMask::RG | ShaderInputParaType::SInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32_SINT, 8 } },
+		{ ShaderInputParaMask::RG | ShaderInputParaType::Float32, DXGIFormatDesc{ DXGI_FORMAT_R32G32_FLOAT, 8 } },
+		{ ShaderInputParaMask::RGB | ShaderInputParaType::UInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32_UINT, 12 } },
+		{ ShaderInputParaMask::RGB | ShaderInputParaType::SInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32_SINT, 12 } },
+		{ ShaderInputParaMask::RGB | ShaderInputParaType::Float32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32_FLOAT, 12 } },
+		{ ShaderInputParaMask::RGBA | ShaderInputParaType::UInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32A32_UINT, 16 } },
+		{ ShaderInputParaMask::RGBA | ShaderInputParaType::SInt32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32A32_SINT, 16 } },
+		{ ShaderInputParaMask::RGBA | ShaderInputParaType::Float32, DXGIFormatDesc{ DXGI_FORMAT_R32G32B32A32_FLOAT, 16 } },
+	};
+
 	// shader target profile
 	std::unordered_map<uint32_t, std::wstring_view> s_shader_target_profile_mapping {
 		{ ShaderType::VertexShader | ShaderTargetProfile::ShaderModel_5_0, L"vs_5_0" },
@@ -82,6 +121,12 @@ namespace toy
 		{ ShaderType::PixelShader | ShaderTargetProfile::ShaderModel_6_0, L"ps_6_0" },
 		{ ShaderType::ComputeShader | ShaderTargetProfile::ShaderModel_6_0, L"cs_6_0" },
 	};
+
+	static DXGIFormatDesc query_dxgi_format_desc(ShaderInputParaMask input_para_mask, ShaderInputParaType input_para_type)
+	{
+		const auto input_para_key = input_para_mask | input_para_type;
+		return s_shader_input_para_mapping[input_para_key];
+	}
 
 	static std::wstring_view query_shader_target_profile(ShaderType shader_type, ShaderTargetProfile shader_target_profile)
 	{
@@ -478,6 +523,7 @@ namespace toy
 
 		auto shader_type = static_cast<D3D12_SHADER_VERSION_TYPE>(D3D12_SHVER_GET_TYPE(shader_desc.Version));
 		auto inner_shader_type = convert_to_internal_shader_type(shader_type);
+		// Bound resources
 		for (uint32_t i = 0; i < shader_desc.BoundResources; ++i)
 		{
 			D3D12_SHADER_INPUT_BIND_DESC shader_input_bind_desc{};
@@ -631,9 +677,39 @@ namespace toy
 			if (!graphics_pipeline_state_object.vs_path.empty()) {
 				auto dxc_shader_result = dxc_instance.create_shader_from_file(graphics_pipeline_state_object.vs_path, ShaderType::VertexShader, shader_target_profile);
 				update_shader_reflection(graphics_pipeline_state_object.vs_path, device, dxc_shader_result.shader_reflection.Get());
+
 				VertexShaderInfo vs_info{};
-				device->CreateVertexShader(dxc_shader_result.shader_blob->GetBufferPointer(), dxc_shader_result.shader_blob->GetBufferSize(), nullptr, vs_info.vs.GetAddressOf());
+				auto &&shader_blob = dxc_shader_result.shader_blob;
+				device->CreateVertexShader(shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(), nullptr, vs_info.vs.GetAddressOf());
 				pipeline_shader_manager.emplace_back(std::move(vs_info));
+
+				// Create vertex input layout if possible
+				auto &&shader_reflection = dxc_shader_result.shader_reflection;
+				D3D12_SHADER_DESC shader_desc{};
+				if (FAILED(shader_reflection->GetDesc(&shader_desc))) {
+					std::cout << std::format("Failed to get shader reflection desc\n");
+					return;
+				}
+				std::vector<D3D11_INPUT_ELEMENT_DESC> input_elements{};
+				input_elements.reserve(shader_desc.InputParameters);
+				uint32_t input_slot = 0;
+				for (uint32_t index = 0; index < shader_desc.InputParameters; ++index)
+				{
+					D3D12_SIGNATURE_PARAMETER_DESC signature_parameter_desc{};
+					shader_reflection->GetInputParameterDesc(index, &signature_parameter_desc);
+					auto shader_input_para_type = convert_to_internal_component_type(signature_parameter_desc.ComponentType);
+					auto shader_input_para_mask = static_cast<ShaderInputParaMask>(signature_parameter_desc.Mask);
+					auto dxgi_format_desc = query_dxgi_format_desc(shader_input_para_mask, shader_input_para_type);
+					D3D11_INPUT_ELEMENT_DESC input_element_desc{ signature_parameter_desc.SemanticName, signature_parameter_desc.SemanticIndex, dxgi_format_desc.dxgi_format, input_slot,
+														0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+					input_elements.emplace_back(input_element_desc);
+					++input_slot;
+				}
+				if (shader_desc.InputParameters > 0)
+				{
+					device->CreateInputLayout(input_elements.data(), static_cast<uint32_t>(input_elements.size()), shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(),
+											vertex_input_layout.GetAddressOf());
+				}
 			} else {
 				pipeline_shader_manager.emplace_back(VertexShaderInfo{});
 			}
@@ -698,6 +774,7 @@ namespace toy
 	void GraphicsEffect::emit_graphics_pipeline(ID3D11DeviceContext *device_context)
 	{
 		Effect::emit_pipeline(device_context);
+		device_context->IASetInputLayout(vertex_input_layout.Get());
 		device_context->RSSetState(rasterizer_state.Get());
 		device_context->OMSetDepthStencilState(depth_stencil_state.Get(), stencil_ref);
 		device_context->OMSetBlendState(blend_state.Get(), blend_factor.data(), sample_mask);

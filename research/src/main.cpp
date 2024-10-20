@@ -5,7 +5,8 @@
 #include <effect.h>
 
 constexpr std::string_view s_compiler_path = "D:/Dev/CMakeCook/DXC_Research/dxc/bin/x64/dxcompiler.dll";
-constexpr std::wstring_view s_shader_path = L"D:/Dev/CMakeCook/DXC_Research/shaders/transmittance.hlsl";
+// constexpr std::wstring_view s_shader_path = L"D:/Dev/CMakeCook/DXC_Research/shaders/transmittance.hlsl";
+constexpr std::wstring_view s_shader_path = L"D:/Dev/CMakeCook/DXC_Research/shaders/geometry_vs.hlsl";
 constexpr std::wstring_view s_search_path = L"D:/Dev/CMakeCook/DXC_Research/shaders";
 
 int main()
@@ -26,12 +27,9 @@ int main()
 
 	std::vector<const wchar_t *> compilationArguments
 	{
-		L"-E",
-		L"CS",
-		L"-T",
-		L"cs_6_0",
-		L"-I",
-		s_search_path.data(),
+		L"-E", L"VS",
+		L"-T", L"vs_6_0",
+		L"-I", s_search_path.data(),
 		DXC_ARG_PACK_MATRIX_ROW_MAJOR,
 		DXC_ARG_WARNINGS_ARE_ERRORS,
 		DXC_ARG_ALL_RESOURCES_BOUND,
@@ -85,6 +83,16 @@ int main()
 	shaderReflection->GetDesc(&shaderDesc);
 
 	auto shaderType = static_cast<D3D12_SHADER_VERSION_TYPE>(D3D12_SHVER_GET_TYPE(shaderDesc.Version));
+
+	if (shaderType == D3D12_SHVER_VERTEX_SHADER) {
+		for (uint32_t index = 0; index < shaderDesc.InputParameters; ++index) {
+			D3D12_SIGNATURE_PARAMETER_DESC signature_parameter_desc{};
+			shaderReflection->GetInputParameterDesc(index, &signature_parameter_desc);
+
+			std::cout << std::format("name: {}; index: {}, mask: {}, component type: {}\n",
+							signature_parameter_desc.SemanticName, signature_parameter_desc.SemanticIndex, signature_parameter_desc.Mask, static_cast<uint32_t>(signature_parameter_desc.ComponentType));
+		}
+	}
 
 	for (uint32_t i = 0; i < shaderDesc.BoundResources; ++i)
 	{

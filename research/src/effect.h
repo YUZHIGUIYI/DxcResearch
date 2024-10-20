@@ -17,6 +17,7 @@
 #include <wrl/client.h>
 
 #include <d3d11.h>
+#include <dxgi.h>
 #include <Inc/dxcapi.h>
 #include <Inc/d3d12shader.h>
 
@@ -48,6 +49,31 @@ namespace toy
 		ShaderModel_6_4 = 0x1000,
 		ShaderModel_6_5 = 0x2000,
 		ShaderModel_6_6 = 0x4000
+	};
+
+	// Shader input parameter mask
+	enum class ShaderInputParaMask
+	{
+		R = 1,
+		RG = 3,
+		RGB = 7,
+		RGBA = 15
+	};
+
+	// Shader input parameter component type
+	enum class ShaderInputParaType
+	{
+		Unknown = 0,
+		UInt32 = 16,
+		SInt32 = 32,
+		Float32 = 64
+	};
+
+	// Shader input parameter DXGI format and its size in bytes
+	struct DXGIFormatDesc
+	{
+		DXGI_FORMAT dxgi_format = DXGI_FORMAT_UNKNOWN;
+		uint32_t size_in_bytes = 0;
 	};
 
 	// Dxc compiler result
@@ -326,6 +352,7 @@ namespace toy
 		ComPtr<ID3D11RasterizerState> rasterizer_state = nullptr;
 		ComPtr<ID3D11DepthStencilState> depth_stencil_state = nullptr;
 		ComPtr<ID3D11BlendState> blend_state = nullptr;
+		ComPtr<ID3D11InputLayout> vertex_input_layout = nullptr;
 		std::array<float, 4> blend_factor{ 0.0f, 0.0f, 0.0f, 0.0f };
 		uint32_t sample_mask = 0xffffffff;
 		uint32_t stencil_ref = 0;
